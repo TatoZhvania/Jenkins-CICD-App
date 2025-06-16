@@ -2,27 +2,20 @@ pipeline {
     agent any
 
     tools {
-        nodejs 'nodejs'  // This should match your NodeJS installation name in Jenkins global tools config
+        nodejs 'node'
     }
 
     environment {
+        BRANCH_NAME = "${env.BRANCH_NAME}"
         IMAGE_TAG = "${env.BRANCH_NAME == 'main' ? 'nodemain:v1.0' : 'nodedev:v1.0'}"
-        CONTAINER_NAME = "${env.BRANCH_NAME == 'main' ? 'nodemain' : 'nodedev'}"
-        HOST_PORT = "${env.BRANCH_NAME == 'main' ? '3000' : '3001'}"
-        CONTAINER_PORT = '3000'  // Your app inside container always listens on 3000
+        PORT = "${env.BRANCH_NAME == 'main' ? '3000' : '3001'}"
+        CONTAINER_NAME = "${env.BRANCH_NAME}-container"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // Use SSH credentials ID you configured in Jenkins
-                checkout([$class: 'GitSCM',
-                          branches: [[name: "*/${env.BRANCH_NAME}"]],
-                          userRemoteConfigs: [[
-                            url: 'git@github.com:TatoZhvania/Jenkins-CICD-App.git',
-                            credentialsId: 'your-ssh-credential-id' // replace with your credentials ID
-                          ]]
-                ])
+                checkout scm
             }
         }
 
@@ -32,7 +25,7 @@ pipeline {
             }
         }
 
-        stage('Test') {
+        stage('Run Tests') {
             steps {
                 sh 'npm test'
             }
@@ -40,26 +33,14 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${env.IMAGE_TAG} ."
+                sh "docker build -t ${IMAGE_TAG} ."
             }
         }
 
-        stage('Deploy') {
+        stage('Run Docker Container') {
             steps {
-                script {
-                    // Stop and remove existing container gracefully if exists
-                    sh "docker ps -q --filter name=${env.CONTAINER_NAME} | grep -q . && docker stop ${env.CONTAINER_NAME} || true"
-                    sh "docker ps -a -q --filter name=${env.CONTAINER_NAME} | grep -q . && docker rm ${env.CONTAINER_NAME} || true"
-
-                    // Run new container
-                    sh """
-                      docker run -d \
-                        --name ${env.CONTAINER_NAME} \
-                        --expose ${env.CONTAINER_PORT} \
-                        -p ${env.HOST_PORT}:${env.CONTAINER_PORT} \
-                        ${env.IMAGE_TAG}
-                    """
-                }
+                sh "docker rm -f ${CONTAINER_NAME} || true"
+                sh "docker run -d --expose ${PORT} -p ${PORT}:3000 --name ${CONTAINER_NAME} ${IMAGE_TAG}"
             }
         }
     }
